@@ -1,0 +1,21 @@
+{
+  "name": "helpposuomi",
+  "version": "1.0.0",
+  "description": "Automation to fetch latest Yle article and later summarize/translate.",
+  "type": "module",
+  "main": "scraper.js",
+  "scripts": {
+    "scrape": "node scraper.js"
+  },
+  "keywords": [
+    "playwright",
+    "scraper",
+    "yle",
+    "news"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "playwright": "^1.47.2"
+  }
+}
