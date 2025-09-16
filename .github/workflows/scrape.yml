@@ -1,12 +1,23 @@
-name: Hourly Yle scrape
+name: Hourly Yle scrape + Pages deploy
 
 on:
   schedule:
     - cron: "0 * * * *" # hourly (UTC)
   workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
-  scrape:
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,9 +35,28 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium
 
-      - name: Run scraper (with simple retry)
+      - name: Build static site
         run: |
           set -e
           for i in 1 2 3; do
-            npm run scrape && break || sleep 10
+            npm run build && break || sleep 10
           done
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

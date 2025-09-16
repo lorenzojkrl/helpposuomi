@@ -1,9 +1,11 @@
 import { chromium } from "playwright";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 /**
  * Fetches the latest Yle article text by visiting https://yle.fi/ and
  * clicking the most recent element with class "underlay-link".
- * Prints the article title and text to stdout.
+ * Returns structured data (title, url, text, fetchedAt).
  */
 async function fetchLatestYleArticle() {
   const browser = await chromium.launch({ headless: true });
@@ -97,19 +99,16 @@ async function fetchLatestYleArticle() {
       .filter(Boolean)
       .join("\n");
 
-    const output = [
-      title ? `TITLE: ${title}` : null,
-      `URL: ${targetUrl}`,
-      "---",
-      cleaned || "(No article text extracted)",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    console.log(output);
+    return {
+      title,
+      url: targetUrl,
+      text: cleaned,
+      fetchedAt: new Date().toISOString(),
+    };
   } catch (error) {
     console.error("Scrape failed:", error?.message || error);
     process.exitCode = 1;
+    return null;
   } finally {
     await page.close().catch(() => {});
     await context.close().catch(() => {});
@@ -117,6 +116,96 @@ async function fetchLatestYleArticle() {
   }
 }
 
+function renderHtml({ title, url, text, fetchedAt }) {
+  const paragraphs = text
+    ? text
+        .split("\n")
+        .map((p) => `<p>${escapeHtml(p)}</p>`)
+        .join("\n")
+    : "<p>(No article text extracted)</p>";
+  return `<!doctype html>
+<html lang="fi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title || "Yle uusin artikkeli")}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem auto; padding: 0 1rem; max-width: 820px; line-height: 1.6; color: #111; }
+    header { margin-bottom: 1.5rem; }
+    h1 { font-size: 1.8rem; margin: 0 0 .5rem 0; }
+    .meta { color: #666; font-size: .95rem; }
+    a { color: #0a63c6; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    footer { margin-top: 2rem; color: #666; font-size: .9rem; }
+  </style>
+  <meta name="robots" content="noindex" />
+  <meta property="og:title" content="${escapeHtml(
+    title || "Yle uusin artikkeli"
+  )}" />
+  <meta property="og:url" content="${escapeHtml(url)}" />
+  <meta name="description" content="Viimeisin Ylen artikkeli. Päivitetty: ${escapeHtml(
+    fetchedAt
+  )}" />
+  <link rel="icon" href="data:," />
+  </head>
+<body>
+  <header>
+    <h1>${escapeHtml(title || "Viimeisin Ylen artikkeli")}</h1>
+    <div class="meta">Lähde: <a href="${escapeHtml(url)}">${escapeHtml(
+    url
+  )}</a> · Päivitetty: ${escapeHtml(fetchedAt)}</div>
+  </header>
+  <main>
+    ${paragraphs}
+  </main>
+  <footer>
+    Rakennettu automaattisesti Playwright-selaimella.
+  </footer>
+</body>
+</html>`;
+}
+
+function escapeHtml(s = "") {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+async function writeSite(data, outPath = "dist/index.html") {
+  const outDir = path.dirname(outPath);
+  await fs.mkdir(outDir, { recursive: true });
+  const html = renderHtml(data);
+  await fs.writeFile(outPath, html, "utf8");
+  await fs.writeFile(
+    path.join(outDir, "latest.json"),
+    JSON.stringify(data, null, 2),
+    "utf8"
+  );
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  fetchLatestYleArticle();
+  (async () => {
+    const data = await fetchLatestYleArticle();
+    if (!data) return;
+    const outFlagIndex = process.argv.indexOf("--out");
+    const outPath =
+      outFlagIndex !== -1 ? process.argv[outFlagIndex + 1] : undefined;
+    if (outPath) {
+      await writeSite(data, outPath);
+      console.log(`Wrote site to ${outPath}`);
+    } else {
+      const output = [
+        data.title ? `TITLE: ${data.title}` : null,
+        `URL: ${data.url}`,
+        "---",
+        data.text || "(No article text extracted)",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      console.log(output);
+    }
+  })();
 }
